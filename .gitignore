@@ -1,0 +1,25 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# CMake / Builds
+build*/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+install/
+
+# Outputs / Data
+data/
+*.csv
+*.png
+*.mp4
+
+# IDEs
+.vscode/
+.idea/
+.vs/
+*.user
