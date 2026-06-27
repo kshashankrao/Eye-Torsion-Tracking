@@ -23,3 +23,8 @@ data/
 .idea/
 .vs/
 *.user
+
+# MLflow
+mlruns/
+mlflow.db*
+

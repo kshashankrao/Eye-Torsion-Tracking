@@ -24,6 +24,17 @@ protected:
     int angular_bins_;
     bool use_fft_;
 
+    // Hyperparameters
+    int glint_threshold_;
+    int glint_kernel_size_;
+    double glint_inpaint_radius_;
+    double polar_max_radius_;
+    int iris_inner_row_;
+    int iris_outer_row_;
+    double clahe_clip_limit_;
+    int clahe_grid_size_;
+    int max_search_shift_deg_;
+
     cv::Mat convertToPolar(const cv::Mat& src, int interpolation = cv::INTER_LINEAR);
     std::pair<cv::Mat, cv::Mat> removeGlints(const cv::Mat& src);
     double calculateMaskedNCC(const cv::Mat& prev, const cv::Mat& curr, const cv::Mat& mask_prev, const cv::Mat& mask_curr, int max_shift, double& best_peak);

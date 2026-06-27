@@ -1,24 +1,63 @@
 #include "algorithms/PolarCrossCorrelation.hpp"
 #include <opencv2/photo.hpp>
+#include <nlohmann/json.hpp>
+#include <fstream>
 #include <iostream>
 #include <utility>
 
 PolarCrossCorrelation::PolarCrossCorrelation(int radial_bins, int angular_bins, bool use_fft)
-    : radial_bins_(radial_bins), angular_bins_(angular_bins), use_fft_(use_fft) {}
+    : radial_bins_(radial_bins),
+      angular_bins_(angular_bins),
+      use_fft_(use_fft),
+      glint_threshold_(140),
+      glint_kernel_size_(11),
+      glint_inpaint_radius_(5.0),
+      polar_max_radius_(75.0),
+      iris_inner_row_(35),
+      iris_outer_row_(70),
+      clahe_clip_limit_(3.0),
+      clahe_grid_size_(8),
+      max_search_shift_deg_(45) {
+    try {
+        std::ifstream file("config/config.json");
+        if (file.is_open()) {
+            nlohmann::json config;
+            file >> config;
+            if (config.contains("algorithm")) {
+                auto alg = config["algorithm"];
+                if (alg.contains("radial_bins")) radial_bins_ = alg["radial_bins"].get<int>();
+                if (alg.contains("angular_bins")) angular_bins_ = alg["angular_bins"].get<int>();
+                if (alg.contains("use_fft")) use_fft_ = alg["use_fft"].get<bool>();
+                
+                if (alg.contains("glint_threshold")) glint_threshold_ = alg["glint_threshold"].get<int>();
+                if (alg.contains("glint_kernel_size")) glint_kernel_size_ = alg["glint_kernel_size"].get<int>();
+                if (alg.contains("glint_inpaint_radius")) glint_inpaint_radius_ = alg["glint_inpaint_radius"].get<double>();
+                if (alg.contains("polar_max_radius")) polar_max_radius_ = alg["polar_max_radius"].get<double>();
+                if (alg.contains("iris_inner_row")) iris_inner_row_ = alg["iris_inner_row"].get<int>();
+                if (alg.contains("iris_outer_row")) iris_outer_row_ = alg["iris_outer_row"].get<int>();
+                if (alg.contains("clahe_clip_limit")) clahe_clip_limit_ = alg["clahe_clip_limit"].get<double>();
+                if (alg.contains("clahe_grid_size")) clahe_grid_size_ = alg["clahe_grid_size"].get<int>();
+                if (alg.contains("max_search_shift_deg")) max_search_shift_deg_ = alg["max_search_shift_deg"].get<int>();
+            }
+        }
+    } catch (...) {
+        // Fallback to defaults
+    }
+}
 
 std::pair<cv::Mat, cv::Mat> PolarCrossCorrelation::removeGlints(const cv::Mat& src) {
     // 1. Create a mask of the bright glints (saturated pixels)
     cv::Mat mask;
-    cv::threshold(src, mask, 140, 255, cv::THRESH_BINARY);
+    cv::threshold(src, mask, glint_threshold_, 255, cv::THRESH_BINARY);
     
     // 2. Dilate the mask to cover the transitional edges and halos of the glints
     cv::Mat dilated_mask;
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(11, 11));
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(glint_kernel_size_, glint_kernel_size_));
     cv::dilate(mask, dilated_mask, kernel);
     
     // 3. Inpaint the glint regions using Telea's method with a suitable radius
     cv::Mat dst;
-    cv::inpaint(src, dilated_mask, dst, 5.0, cv::INPAINT_TELEA);
+    cv::inpaint(src, dilated_mask, dst, glint_inpaint_radius_, cv::INPAINT_TELEA);
     
     // Create valid mask (inverted): valid pixels are 1, glints are 0
     cv::Mat valid_mask;
@@ -33,7 +72,7 @@ cv::Mat PolarCrossCorrelation::convertToPolar(const cv::Mat& src, int interpolat
 
     // We target the iris region. The crop is 160x160.
     // Half-width is 80.
-    double maxRadius = 75.0;
+    double maxRadius = polar_max_radius_;
 
     // OpenCV's warpPolar maps: rows → angle (phi), cols → radius (rho).
     // To get the INTENDED layout (rows = radius, cols = angle) we must:
@@ -163,7 +202,7 @@ TorsionResult PolarCrossCorrelation::calculateTorsion(const cv::Mat& prev_frame,
     // Select the iris annulus: radial rows 35–70 out of 80 radial bins.
     // Rows = radius, Cols = angle (warpPolar output: rows=rho, cols=phi).
     // This gives a 35×1440 sub-image so the NCC can shift in the full angular dimension.
-    cv::Range iris_rows(35, 70);
+    cv::Range iris_rows(iris_inner_row_, iris_outer_row_);
     cv::Mat iris_prev = polar_prev(iris_rows, cv::Range::all());
     cv::Mat iris_curr = polar_curr(iris_rows, cv::Range::all());
 
@@ -171,7 +210,7 @@ TorsionResult PolarCrossCorrelation::calculateTorsion(const cv::Mat& prev_frame,
     cv::Mat iris_mask_curr = polar_mask_curr(iris_rows, cv::Range::all());
     
     // Enhance iris texture using CLAHE
-    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(3.0, cv::Size(8, 8));
+    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clahe_clip_limit_, cv::Size(clahe_grid_size_, clahe_grid_size_));
     cv::Mat enhanced_prev, enhanced_curr;
     clahe->apply(iris_prev, enhanced_prev);
     clahe->apply(iris_curr, enhanced_curr);
@@ -191,7 +230,7 @@ TorsionResult PolarCrossCorrelation::calculateTorsion(const cv::Mat& prev_frame,
         shift_y = shift.y;
     } else {
         // Use custom Masked Spatial NCC
-        int max_shift = 45; // Max 45 degrees
+        int max_shift = static_cast<int>(std::round(max_search_shift_deg_ * (angular_bins_ / 360.0)));
         shift_y = calculateMaskedNCC(float_prev_32f, float_curr_32f, iris_mask_prev, iris_mask_curr, max_shift, peak_response);
     }
     
@@ -279,12 +318,12 @@ TorsionResult PolarCrossCorrelation::calculateTorsion(const cv::Mat& prev_frame,
         // Warp features back to Cartesian
         cv::Mat full_feature_mask_prev = cv::Mat::zeros(polar_prev.size(), CV_8U);
         cv::Mat full_feature_mask_curr = cv::Mat::zeros(polar_curr.size(), CV_8U);
-        top_features_prev.copyTo(full_feature_mask_prev(cv::Range(35, 70), cv::Range::all()));
-        top_features_curr.copyTo(full_feature_mask_curr(cv::Range(35, 70), cv::Range::all()));
+        top_features_prev.copyTo(full_feature_mask_prev(cv::Range(iris_inner_row_, iris_outer_row_), cv::Range::all()));
+        top_features_curr.copyTo(full_feature_mask_curr(cv::Range(iris_inner_row_, iris_outer_row_), cv::Range::all()));
         
         cv::Mat cartesian_feature_mask_prev, cartesian_feature_mask_curr;
         cv::Point2f center(cleaned_prev.cols / 2.0f, cleaned_prev.rows / 2.0f);
-        double maxRadius = 75.0;
+        double maxRadius = polar_max_radius_;
         
         cv::warpPolar(full_feature_mask_prev, cartesian_feature_mask_prev, cleaned_prev.size(), center, maxRadius,
                       cv::WARP_INVERSE_MAP | cv::INTER_NEAREST | cv::WARP_FILL_OUTLIERS);

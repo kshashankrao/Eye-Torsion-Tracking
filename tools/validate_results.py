@@ -5,6 +5,7 @@ import argparse
 import cv2
 import matplotlib.pyplot as plt
 import json
+import mlflow
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
@@ -134,6 +135,51 @@ def main():
     # Generate visualization plots if the boolean flag is passed
     if args.visualize:
         generate_plots(df, processed_dir, plots_dir)
+
+    # Calculate mean C++ algorithm-only execution time (ms)
+    mean_runtime_ms = df['runtime_ms'].mean() if 'runtime_ms' in df.columns else 0.0
+
+    # MLflow logging
+    mlflow.set_tracking_uri("sqlite:////tmp/mlflow.db")
+    mlflow.set_experiment("Eye_Torsion_Tracking")
+    
+    with mlflow.start_run():
+        # Log algorithm configurations from config.json
+        mlflow.log_params({
+            "method": config.get("algorithm", {}).get("method", "unknown"),
+            "target_fps": config.get("algorithm", {}).get("target_fps", "unknown"),
+            "radial_bins": config.get("algorithm", {}).get("radial_bins", 80),
+            "angular_bins": config.get("algorithm", {}).get("angular_bins", 1440)
+        })
+        
+        # Log summary metrics
+        mlflow.log_metrics({
+            "MAAE": maae,
+            "RMSAE": rmsae,
+            "Max_Error": max_error,
+            "Total_Samples": float(len(df)),
+            "runtime_ms": mean_runtime_ms
+        })
+        
+        # Log validation CSV as an artifact
+        mlflow.log_artifact(results_path)
+        
+        # Log the validation plots directory if generated
+        if args.visualize and os.path.exists(plots_dir):
+            mlflow.log_artifacts(plots_dir, artifact_path="validation_plots")
+
+        # Automatically find and upload C++ pipeline diagnostic intermediate images (debug_*.png)
+        # These are saved inside the run directory (e.g. output/YYYYMMDD_HHMMSS_PolarCrossCorrelation_Masked/)
+        run_dir = os.path.dirname(results_path)
+        if os.path.exists(run_dir):
+            debug_images = [os.path.join(run_dir, f) for f in os.listdir(run_dir) 
+                            if f.endswith('.png') and f.startswith('debug_')]
+            if debug_images:
+                print(f"Logging {len(debug_images)} diagnostic intermediate images to MLflow...")
+                for img_path in debug_images:
+                    mlflow.log_artifact(img_path, artifact_path="diagnostics")
+            
+        print("\n[MLflow] Run successfully logged to local MLflow tracking server!")
 
 if __name__ == "__main__":
     main()

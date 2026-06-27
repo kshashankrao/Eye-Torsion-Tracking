@@ -19,7 +19,19 @@
     "algorithm": {
         "method": "polar_cross_correlation",
         "target_fps": 100,
-        "visualization_enabled": true
+        "visualization_enabled": true,
+        "radial_bins": 80,
+        "angular_bins": 720,
+        "use_fft": false,
+        "glint_threshold": 149,
+        "glint_kernel_size": 11,
+        "glint_inpaint_radius": 5.073649321875338,
+        "polar_max_radius": 76.8242242711105,
+        "iris_inner_row": 31,
+        "iris_outer_row": 65,
+        "clahe_clip_limit": 1.1966834248073357,
+        "clahe_grid_size": 12,
+        "max_search_shift_deg": 26
     },
     "output": {
         "csv_path": "output/algorithm_results.csv"

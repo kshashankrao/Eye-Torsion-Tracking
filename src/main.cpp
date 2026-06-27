@@ -2,6 +2,7 @@
 #include "TorsionDetector.hpp"
 #include "algorithms/TorsionAlgorithm.hpp"
 #include "algorithms/PolarCrossCorrelation.hpp"
+#include "utils/PerformanceTracker.hpp"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -47,17 +48,20 @@ int main() {
         }
         
         // Write header
-        out_file << "sequence,img_prev,img_curr,gt_angle,algo_angle,confidence,success\n";
+        out_file << "sequence,img_prev,img_curr,gt_angle,algo_angle,confidence,success,runtime_ms\n";
         
         // 4. Iterate through samples lazily
         size_t processed_count = 0;
         bool debug_saved = false;
+        PerformanceTracker tracker;
         
         while (loader.hasNext()) {
             TorsionSample sample = loader.next();
             
             // We pass request_diagnostics = true so we can inspect intermediate steps in debug mode!
+            tracker.start();
             auto [predicted_angle, confidence, success, diagnostics] = detector.process(sample.img_prev, sample.img_curr, true);
+            double elapsed_ms = tracker.stop();
             
             // Save one pair of diagnostic images inside the dynamic output directory
             if (diagnostics && !debug_saved) {
@@ -103,7 +107,8 @@ int main() {
                      << sample.gt_angle << ","
                      << predicted_angle << ","
                      << confidence << ","
-                     << (success ? "1" : "0") << "\n";
+                     << (success ? "1" : "0") << ","
+                     << elapsed_ms << "\n";
                      
             processed_count++;
         }
@@ -111,6 +116,12 @@ int main() {
         out_file.close();
         std::cout << "\nSuccess! Pipeline executed. Processed " << processed_count 
                   << " pairs. Results saved to " << out_csv_path << std::endl;
+                  
+        std::cout << "\n=== Algorithm Latency Stats ===" << std::endl;
+        std::cout << "Mean:   " << tracker.getMean() << " ms" << std::endl;
+        std::cout << "Min:    " << tracker.getMin() << " ms" << std::endl;
+        std::cout << "Max:    " << tracker.getMax() << " ms" << std::endl;
+        std::cout << "StdDev: " << tracker.getStdDev() << " ms" << std::endl;
                   
                   
     } catch (const std::exception& e) {
