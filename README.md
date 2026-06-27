@@ -6,9 +6,9 @@ A high-performance C++ and Python pipeline designed to calculate and validate ey
 
 ## Demo Video
 
-Below is the optimized tracking pipeline running on consecutive frames, showing Cartesian and Polar workspaces with green feature overlays:
+Below is the optimized tracking pipeline running on consecutive frames:
 
-<video src="docs/torsion_demo_video.mp4" width="100%" controls></video>
+![Torsion Tracking Demo Video](docs/torsion_demo_video.gif)
 
 ---
 
@@ -47,7 +47,16 @@ chmod +x setup_dev.sh
 ./setup_dev.sh
 ```
 
-### Step 2: Build the C++ Project
+### Step 2: Prepare the Dataset
+The pipeline uses sequential frame pairs. A preparation script is provided to download raw eye tracking videos from Hugging Face, crop the frames around the center of the pupil, and generate synthetic sequences with exact ground-truth torsion angles:
+
+```bash
+source venv/bin/activate
+python3 tools/prepare_dataset.py
+```
+*This extracts base frames, crops them to 160x160 pixels around the pupil center, generates rotated sequences inside `data/processed/`, and populates the ground-truth logs.*
+
+### Step 3: Build the C++ Project
 Compile the core library, main application, and test suite:
 ```bash
 # Create build directory
