@@ -3,6 +3,23 @@
 #include <opencv2/opencv.hpp>
 #include <optional>
 
+struct TorsionIntermediates {
+    cv::Mat prev_frame;          // Raw input frames
+    cv::Mat curr_frame;
+    cv::Mat cleaned_prev;        // Glint-removed Cartesian frames
+    cv::Mat cleaned_curr;
+    cv::Mat cartesian_mask_prev; // Binary glint masks
+    cv::Mat cartesian_mask_curr;
+    cv::Mat polar_prev;          // Polar warped frames
+    cv::Mat polar_curr;
+    cv::Mat iris_prev;           // Cropped iris polar crops
+    cv::Mat iris_curr;
+    cv::Mat enhanced_prev;       // CLAHE enhanced polar crops
+    cv::Mat enhanced_curr;
+    cv::Mat iris_mask_prev;      // Polar iris masks
+    cv::Mat iris_mask_curr;
+};
+
 struct TorsionDiagnostics {
     cv::Mat clean_prev;
     cv::Mat clean_curr;

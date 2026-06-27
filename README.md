@@ -2,8 +2,6 @@
 
 A high-performance C++ and Python pipeline designed to calculate and validate eye torsion (roll) angles between sequential grayscale frames. It implements polar warp transformations and masked spatial Normalized Cross-Correlation (NCC) to measure circular shifts with sub-degree and sub-pixel accuracy, even in the presence of bright specular reflections (glints).
 
-* **Detailed Algorithm & Intermediate Frame Visualizations**: See the [Algorithm Documentation](docs/ALGORITHM.md).
-
 ## Demo Video
 
 Below is the optimized tracking pipeline running on consecutive frames:
@@ -82,12 +80,15 @@ python3 tools/prepare_dataset.py
 *This extracts base frames, crops them to 160x160 pixels around the pupil center, generates rotated sequences inside `data/processed/`, and populates the ground-truth logs.*
 
 ### Step 3: Build the C++ Project
-Compile the core library, main application, and test suite:
-```bash
-# Create build directory
-cmake -B build -S .
+Compile the core library, main application, and test suite. You can configure build-time default diagnostics (overlay rendering logic) using the `ENABLE_DIAGNOSTICS` CMake flag:
 
-# Build target binaries
+```bash
+# Build in Release mode with diagnostics DISABLED (Recommended for production):
+cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_DIAGNOSTICS=OFF -B build -S .
+cmake --build build -j$(nproc)
+
+# Build with diagnostics ENABLED globally by default:
+cmake -DENABLE_DIAGNOSTICS=ON -B build -S .
 cmake --build build -j$(nproc)
 ```
 
@@ -106,7 +107,8 @@ Process all sequential eye frames specified in `config/config.json`:
 ```bash
 ./build/torsion_app
 ```
-*Outputs are saved under a timestamped directory inside `output/` (e.g., `output/YYYYMMDD_HHMMSS_PolarCrossCorrelation_Masked/`). This includes `algorithm_results.csv` and intermediate debug overlays.*
+*Outputs are saved under a timestamped directory inside `output/` (e.g., `output/YYYYMMDD_HHMMSS_PolarCrossCorrelation_Masked/`). This includes `algorithm_results.csv` and intermediate debug overlays (generated only for the first frame pair by default to minimize runtime overhead; this can be toggled via `request_diag` in `src/main.cpp`).*
+
 
 ### 3. Run Validation and Plots
 Evaluate tracking accuracy against the ground truth and plot validation graphs:

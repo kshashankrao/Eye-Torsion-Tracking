@@ -3,6 +3,7 @@
 #include "algorithms/TorsionAlgorithm.hpp"
 #include "algorithms/PolarCrossCorrelation.hpp"
 #include "utils/PerformanceTracker.hpp"
+#include "utils/TorsionVisualizer.hpp"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -58,52 +59,22 @@ int main() {
         while (loader.hasNext()) {
             TorsionSample sample = loader.next();
             
-            // We pass request_diagnostics = false for maximum production performance
+            // Request diagnostics only for the first frame to save debug overlays
+            bool request_diag = !debug_saved;
+            
             tracker.start();
-            auto [predicted_angle, confidence, success, diagnostics] = detector.process(sample.img_prev, sample.img_curr, false);
+            auto [predicted_angle, confidence, success, diagnostics] = detector.process(sample.img_prev, sample.img_curr, request_diag);
             double elapsed_ms = tracker.stop();
             
-
-
             // Save one pair of diagnostic images inside the dynamic output directory
             if (diagnostics && !debug_saved) {
-                // Cartesian cleaned images (no overlays)
-                cv::imwrite(out_dir + "/debug_01_clean_prev.png", diagnostics->clean_prev);
-                cv::imwrite(out_dir + "/debug_01_clean_curr.png", diagnostics->clean_curr);
-                
-                // Cartesian mask images (red dots)
-                cv::imwrite(out_dir + "/debug_01a_mask_prev.png", diagnostics->mask_prev);
-                cv::imwrite(out_dir + "/debug_01a_mask_curr.png", diagnostics->mask_curr);
-                
-                // Polar warped images
-                cv::imwrite(out_dir + "/debug_02_polar_prev.png", diagnostics->polar_prev);
-                cv::imwrite(out_dir + "/debug_02_polar_curr.png", diagnostics->polar_curr);
-                
-                // Iris CLAHE enhanced regions (red dots indicate masked out regions in polar space)
-                cv::imwrite(out_dir + "/debug_03_iris_clahe_prev.png", diagnostics->iris_prev);
-                cv::imwrite(out_dir + "/debug_03_iris_clahe_curr.png", diagnostics->iris_curr);
-                
-                // Features used for correlation (green dots on polar space)
-                cv::imwrite(out_dir + "/debug_04_features_prev.png", diagnostics->grad_prev);
-                cv::imwrite(out_dir + "/debug_04_features_curr.png", diagnostics->grad_curr);
-                
-                // Features used for correlation mapped to Cartesian space (green dots on real eye image)
-                cv::imwrite(out_dir + "/debug_04a_cartesian_features_prev.png", diagnostics->cartesian_features_prev);
-                cv::imwrite(out_dir + "/debug_04a_cartesian_features_curr.png", diagnostics->cartesian_features_curr);
-                
-                std::cout << "\n[DEBUG] Diagnostic intermediate images saved to '" << out_dir << "/' folder:" << std::endl;
-                std::cout << "  - Cleaned Cartesian: debug_01_clean_*.png" << std::endl;
-                std::cout << "  - Masked Cartesian:  debug_01a_mask_*.png" << std::endl;
-                std::cout << "  - Warp Polar:        debug_02_polar_*.png" << std::endl;
-                std::cout << "  - Iris CLAHE:        debug_03_iris_clahe_*.png" << std::endl;
-                std::cout << "  - Active Features (Polar): debug_04_features_*.png" << std::endl;
-                std::cout << "  - Active Features (Cart):  debug_04a_cartesian_features_*.png" << std::endl;
-                std::cout << "[DEBUG] Measured Shift: (" << diagnostics->shift.x << ", " << diagnostics->shift.y << ")" << std::endl;
+                TorsionVisualizer::saveDiagnostics(*diagnostics, out_dir);
                 debug_saved = true;
             }
             
-            // Write results
-            out_file << sample.sequence_name << ","
+            // Write results with standard float precision
+            out_file << std::fixed << std::setprecision(6)
+                     << sample.sequence_name << ","
                      << sample.img_prev_name << ","
                      << sample.img_curr_name << ","
                      << sample.gt_angle << ","

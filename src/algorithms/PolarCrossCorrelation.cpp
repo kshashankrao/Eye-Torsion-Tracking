@@ -1,5 +1,6 @@
 #include "algorithms/PolarCrossCorrelation.hpp"
 #include "utils/PerformanceTracker.hpp"
+#include "utils/TorsionVisualizer.hpp"
 #include <opencv2/photo.hpp>
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -305,114 +306,29 @@ TorsionResult PolarCrossCorrelation::calculateTorsion(const cv::Mat& prev_frame,
     result.success = (peak_response > 0.01);
     
     if (request_diagnostics) {
-        // Prepare Cartesian masks for BGR overlay
-        cv::Mat display_mask_prev, display_mask_curr;
-        cartesian_mask_prev.convertTo(display_mask_prev, CV_8U, 255.0); // 1 to 255 for glint-free
-        cv::bitwise_not(display_mask_prev, display_mask_prev); // 255 for glint
-        
-        cartesian_mask_curr.convertTo(display_mask_curr, CV_8U, 255.0);
-        cv::bitwise_not(display_mask_curr, display_mask_curr);
-        
-        // 3. Create BGR overlays for the Cartesian real eye crops (MASK)
-        cv::Mat cartesian_overlay_prev, cartesian_overlay_curr;
-        cv::cvtColor(cleaned_prev, cartesian_overlay_prev, cv::COLOR_GRAY2BGR);
-        cv::cvtColor(cleaned_curr, cartesian_overlay_curr, cv::COLOR_GRAY2BGR);
-        
-        // Color the glint masks red in Cartesian coordinates
-        cartesian_overlay_prev.setTo(cv::Scalar(0, 0, 255), display_mask_prev);
-        cartesian_overlay_curr.setTo(cv::Scalar(0, 0, 255), display_mask_curr);
-        
-        TorsionDiagnostics debug_info;
-        // Clean images (no overlay)
-        debug_info.clean_prev = cleaned_prev.clone();
-        debug_info.clean_curr = cleaned_curr.clone();
-        
-        // Mask images (red overlay)
-        debug_info.mask_prev = std::move(cartesian_overlay_prev);
-        debug_info.mask_curr = std::move(cartesian_overlay_curr);
-        
-        debug_info.polar_prev = polar_prev;
-        debug_info.polar_curr = polar_curr;
-        
-        // To visualize features used for correlation (green dots on polar)
-        cv::Mat grad_y;
-        cv::Sobel(enhanced_prev, grad_y, CV_32F, 0, 1, 3);
-        cv::Mat grad_mag_prev = cv::abs(grad_y);
-        cv::Sobel(enhanced_curr, grad_y, CV_32F, 0, 1, 3);
-        cv::Mat grad_mag_curr = cv::abs(grad_y);
-        
-        // Only keep gradients where mask is valid
-        cv::Mat valid_mask_prev_8u, valid_mask_curr_8u;
-        iris_mask_prev.convertTo(valid_mask_prev_8u, CV_8U, 255.0);
-        iris_mask_curr.convertTo(valid_mask_curr_8u, CV_8U, 255.0);
-        
-        cv::Mat masked_grad_prev = cv::Mat::zeros(grad_mag_prev.size(), CV_32F);
-        cv::Mat masked_grad_curr = cv::Mat::zeros(grad_mag_curr.size(), CV_32F);
-        grad_mag_prev.copyTo(masked_grad_prev, valid_mask_prev_8u);
-        grad_mag_curr.copyTo(masked_grad_curr, valid_mask_curr_8u);
-        
-        double max_prev = 0, max_curr = 0;
-        cv::minMaxLoc(masked_grad_prev, nullptr, &max_prev);
-        cv::minMaxLoc(masked_grad_curr, nullptr, &max_curr);
-        
-        cv::Mat top_features_prev, top_features_curr;
-        cv::threshold(masked_grad_prev, top_features_prev, 0.40 * max_prev, 255, cv::THRESH_BINARY);
-        cv::threshold(masked_grad_curr, top_features_curr, 0.40 * max_curr, 255, cv::THRESH_BINARY);
-        top_features_prev.convertTo(top_features_prev, CV_8U);
-        top_features_curr.convertTo(top_features_curr, CV_8U);
-        
-        cv::Mat feature_overlay_prev, feature_overlay_curr;
-        cv::cvtColor(enhanced_prev, feature_overlay_prev, cv::COLOR_GRAY2BGR);
-        cv::cvtColor(enhanced_curr, feature_overlay_curr, cv::COLOR_GRAY2BGR);
-        feature_overlay_prev.setTo(cv::Scalar(0, 255, 0), top_features_prev); // Green features
-        feature_overlay_curr.setTo(cv::Scalar(0, 255, 0), top_features_curr);
-        
-        // Store features in grad_prev/curr
-        debug_info.grad_prev = std::move(feature_overlay_prev);
-        debug_info.grad_curr = std::move(feature_overlay_curr);
-        
-        // Warp features back to Cartesian
-        cv::Mat full_feature_mask_prev = cv::Mat::zeros(polar_prev.size(), CV_8U);
-        cv::Mat full_feature_mask_curr = cv::Mat::zeros(polar_curr.size(), CV_8U);
-        top_features_prev.copyTo(full_feature_mask_prev(cv::Range(iris_inner_row_, iris_outer_row_), cv::Range::all()));
-        top_features_curr.copyTo(full_feature_mask_curr(cv::Range(iris_inner_row_, iris_outer_row_), cv::Range::all()));
-        
-        cv::Mat cartesian_feature_mask_prev, cartesian_feature_mask_curr;
-        cv::Point2f center(cleaned_prev.cols / 2.0f, cleaned_prev.rows / 2.0f);
-        double maxRadius = polar_max_radius_;
-        
-        cv::warpPolar(full_feature_mask_prev, cartesian_feature_mask_prev, cleaned_prev.size(), center, maxRadius,
-                      cv::WARP_INVERSE_MAP | cv::INTER_NEAREST | cv::WARP_FILL_OUTLIERS);
-        cv::warpPolar(full_feature_mask_curr, cartesian_feature_mask_curr, cleaned_curr.size(), center, maxRadius,
-                      cv::WARP_INVERSE_MAP | cv::INTER_NEAREST | cv::WARP_FILL_OUTLIERS);
-                      
-        cv::Mat cartesian_feature_overlay_prev, cartesian_feature_overlay_curr;
-        cv::cvtColor(cleaned_prev, cartesian_feature_overlay_prev, cv::COLOR_GRAY2BGR);
-        cv::cvtColor(cleaned_curr, cartesian_feature_overlay_curr, cv::COLOR_GRAY2BGR);
-        
-        cartesian_feature_overlay_prev.setTo(cv::Scalar(0, 255, 0), cartesian_feature_mask_prev);
-        cartesian_feature_overlay_curr.setTo(cv::Scalar(0, 255, 0), cartesian_feature_mask_curr);
-        
-        debug_info.cartesian_features_prev = std::move(cartesian_feature_overlay_prev);
-        debug_info.cartesian_features_curr = std::move(cartesian_feature_overlay_curr);
-        
-        // To visualize polar mask
-        cv::Mat overlay_prev, overlay_curr;
-        cv::cvtColor(enhanced_prev, overlay_prev, cv::COLOR_GRAY2BGR);
-        cv::cvtColor(enhanced_curr, overlay_curr, cv::COLOR_GRAY2BGR);
-        cv::Mat disp_pmask_prev, disp_pmask_curr;
-        iris_mask_prev.convertTo(disp_pmask_prev, CV_8U, 255.0);
-        cv::bitwise_not(disp_pmask_prev, disp_pmask_prev);
-        iris_mask_curr.convertTo(disp_pmask_curr, CV_8U, 255.0);
-        cv::bitwise_not(disp_pmask_curr, disp_pmask_curr);
-        overlay_prev.setTo(cv::Scalar(0, 0, 255), disp_pmask_prev);
-        overlay_curr.setTo(cv::Scalar(0, 0, 255), disp_pmask_curr);
-        
-        debug_info.iris_prev = std::move(overlay_prev);
-        debug_info.iris_curr = std::move(overlay_curr);
-        debug_info.shift = cv::Point2d(0, shift_y);
-        
-        result.diagnostics = std::move(debug_info);
+        TorsionIntermediates inter {
+            prev_frame,
+            curr_frame,
+            cleaned_prev,
+            cleaned_curr,
+            cartesian_mask_prev,
+            cartesian_mask_curr,
+            polar_prev,
+            polar_curr,
+            iris_prev,
+            iris_curr,
+            enhanced_prev,
+            enhanced_curr,
+            iris_mask_prev,
+            iris_mask_curr
+        };
+        result.diagnostics = TorsionVisualizer::generateDiagnostics(
+            inter,
+            polar_max_radius_,
+            iris_inner_row_,
+            iris_outer_row_,
+            cv::Point2d(0, shift_y)
+        );
     }
     
     return result;
