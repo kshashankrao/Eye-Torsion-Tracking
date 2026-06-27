@@ -22,9 +22,6 @@ Below are the final evaluation metrics and latency benchmarks for the production
 | **Root Mean Squared Angular Error (RMSAE)** | **`0.0759°`** |
 | **Maximum Error** | **`0.2564°`** |
 
-> **MAAE Formula:** \( \text{MAAE} = \frac{1}{N}\sum_{i=1}^{N} |\theta_i - \hat{\theta}_i| \)
-> **RMSAE Formula:** \( \text{RMSAE} = \sqrt{\frac{1}{N}\sum_{i=1}^{N} (\theta_i - \hat{\theta}_i)^2} \)
-> **Maximum Error Formula:** \( \text{Max Error} = \max_{i} |\theta_i - \hat{\theta}_i| \)
 
 ### 2. Performance & Throughput
 * **Overall Mean Frame Latency**: **`3.31 ms`** (equivalent to **`302 FPS`**)
@@ -174,20 +171,25 @@ To evaluate and optimize algorithm variants, the tracking pipeline computes four
 
 ### 1. Mean Absolute Angular Error (MAAE)
 Measures the average magnitude of tracking errors across all processed sequential frames:
+
 $$\text{MAAE} = \frac{1}{N} \sum_{i=1}^{N} |\Delta \theta_i|$$
 
 Where $\Delta \theta_i$ is the circular difference (in degrees) between the estimated angle $\theta_i^{\text{algo}}$ and the ground truth angle $\theta_i^{\text{gt}}$:
+
 $$\Delta \theta_i = \text{atan2}\left(\sin(\theta_i^{\text{algo}} - \theta_i^{\text{gt}}), \cos(\theta_i^{\text{algo}} - \theta_i^{\text{gt}})\right)$$
 
 ### 2. Root Mean Squared Angular Error (RMSAE)
 Measures tracking error variance, penalizing larger error spikes more heavily:
+
 $$\text{RMSAE} = \sqrt{\frac{1}{N} \sum_{i=1}^{N} (\Delta \theta_i)^2}$$
 
 ### 3. Maximum Error
 Captures the worst-case failure mode in the sequence:
+
 $$\text{Max Error} = \max_{i} |\Delta \theta_i|$$
 
 ### 4. Mean Frame Latency & Throughput
 Measures the average time taken by the core C++ algorithm to process a single frame pair:
+
 $$\text{Throughput (FPS)} = \frac{1000}{\text{Mean Frame Latency (ms)}}$$
 
