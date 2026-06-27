@@ -90,3 +90,47 @@ source venv/bin/activate
 python3 tools/validate_results.py --visualize
 ```
 *This outputs metrics (MAAE, RMSAE, Max Error) to the console and generates visual charts matching estimated trajectories against ground-truth angles inside the latest output directory.*
+
+---
+
+## Hyperparameter Tuning (Optuna)
+
+The project includes a multi-objective hyperparameter optimization script using **Optuna** to find the Pareto-optimal configurations that balance tracking error (MAAE) and execution latency (runtime).
+
+### 1. Run the Hyperparameter Tuner
+Start the tuning process by specifying the number of trials:
+```bash
+source venv/bin/activate
+python3 tools/tune_hyperparameters.py --trials 50
+```
+This script will:
+* Suggest hyperparameter configurations (such as polar bins, glint removal parameters, CLAHE limits, and search bounds).
+* Update `config/config.json` dynamically for each trial.
+* Execute the C++ pipeline target `torsion_app` in a subprocess.
+* Evaluate the tracking error and latency, logging them back to Optuna.
+* Log all trials to the MLflow experiment `Eye_Torsion_MultiObjective_Tuning`.
+
+### 2. Select Best Trade-Off
+Upon completion, the tuner prints the Pareto-front configurations (representing the optimal trade-offs between speed and accuracy). You can manually copy the best parameters into `config/config.json` for production use.
+
+---
+
+## Experiment Tracking (MLflow)
+
+The validation script automatically tracks and logs algorithm parameters, accuracy metrics, C++ runtimes, and intermediate diagnostic images to a local MLflow server.
+
+### 1. Start the MLflow Tracking Server
+Run the local tracking server in your terminal:
+```bash
+source venv/bin/activate
+mlflow server --backend-store-uri sqlite:////tmp/mlflow.db --host 0.0.0.0 --port 5000
+```
+
+### 2. Log Experiments
+Whenever you run `tools/validate_results.py`, parameters and metrics are sent to the SQLite store:
+* **Logged Parameters**: `method`, `target_fps`, `radial_bins`, `angular_bins`
+* **Logged KPI Metrics**: `MAAE`, `RMSAE`, `Max_Error`, `runtime_ms` (mean C++ execution time)
+* **Logged Artifacts**: Result CSVs, validation plots, and intermediate pipeline diagnostic step images (`debug_*.png`)
+
+### 3. View Dashboard
+Navigate to **`http://localhost:5000`** in your web browser to open the MLflow dashboard, compare different run configurations, and review performance/accuracy metrics.
