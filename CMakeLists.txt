@@ -18,30 +18,44 @@ FetchContent_MakeAvailable(json)
 # Include directories
 include_directories(include)
 
-# Define source files
-set(SOURCES
-    src/main.cpp
+# Core source files (exclude main.cpp)
+set(CORE_SOURCES
     src/DataLoader.cpp
     src/TorsionDetector.cpp
     src/algorithms/PolarCrossCorrelation.cpp
 )
 
-# Executable target
-add_executable(torsion_app ${SOURCES})
+# Core static library
+add_library(torsion_core STATIC ${CORE_SOURCES})
+target_include_directories(torsion_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(torsion_core PUBLIC ${OpenCV_LIBS} nlohmann_json::nlohmann_json)
 
-# Link OpenCV and nlohmann_json
-target_link_libraries(torsion_app PRIVATE 
-    ${OpenCV_LIBS}
-    nlohmann_json::nlohmann_json
-)
+# Executable target linking core library
+add_executable(torsion_app src/main.cpp)
+target_link_libraries(torsion_app PRIVATE torsion_core)
 
-# Option to enable diagnostics (toggled via cmake -DENABLE_DIAGNOSTICS=ON)
+# Option to enable diagnostics
 option(ENABLE_DIAGNOSTICS "Enable algorithm diagnostic outputs" OFF)
-
 if(ENABLE_DIAGNOSTICS)
-    target_compile_definitions(torsion_app PRIVATE DIAGNOSTICS_DEFAULT=true)
+    target_compile_definitions(torsion_core PRIVATE DIAGNOSTICS_DEFAULT=true)
     message(STATUS "Build Mode: Diagnostics ENABLED by default")
 else()
-    target_compile_definitions(torsion_app PRIVATE DIAGNOSTICS_DEFAULT=false)
+    target_compile_definitions(torsion_core PRIVATE DIAGNOSTICS_DEFAULT=false)
     message(STATUS "Build Mode: Diagnostics DISABLED by default")
 endif()
+
+# -------------------- Testing --------------------
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+)
+# For Windows: prevent overriding parent compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+add_executable(torsion_tests tests/test_PolarCrossCorrelation.cpp)
+target_link_libraries(torsion_tests PRIVATE torsion_core GTest::gtest_main)
+include(GoogleTest)
+gtest_discover_tests(torsion_tests)

@@ -36,7 +36,9 @@ def generate_plots(df, processed_dir, plots_dir):
             
             gt = row['gt_angle']
             algo = row['algo_angle']
-            err = abs(gt - algo)
+            # Circular angular difference
+            diff_rad = np.arctan2(np.sin(np.radians(algo - gt)), np.cos(np.radians(algo - gt)))
+            err = abs(np.degrees(diff_rad))
             
             ax_prev = axes[idx, 0]
             if img_prev is not None:
@@ -56,8 +58,13 @@ def generate_plots(df, processed_dir, plots_dir):
                 )
             ax_curr.axis('off')
             
-        mae = seq_df['gt_angle'].sub(seq_df['algo_angle']).abs().mean()
-        plt.suptitle(f"Sequence: {seq} | MAE: {mae:.4f}°", fontsize=14, y=0.98)
+        # Calculate MAAE for the sequence using circular diff
+        diff_seq_rad = np.arctan2(
+            np.sin(np.radians(seq_df['algo_angle'] - seq_df['gt_angle'])),
+            np.cos(np.radians(seq_df['algo_angle'] - seq_df['gt_angle']))
+        )
+        maae = np.abs(np.degrees(diff_seq_rad)).mean()
+        plt.suptitle(f"Sequence: {seq} | MAAE: {maae:.4f}°", fontsize=14, y=0.98)
         plt.tight_layout()
         
         save_path = os.path.join(plots_dir, f"{seq}_validation.png")
@@ -104,18 +111,22 @@ def main():
     print(f"Evaluating results from: {results_path}")
     df = pd.read_csv(results_path)
     
-    # Calculate errors
-    df['error'] = df['algo_angle'] - df['gt_angle']
+    # Calculate circular angular errors (geodesic distance on the unit circle)
+    error_rad = np.arctan2(
+        np.sin(np.radians(df['algo_angle'] - df['gt_angle'])),
+        np.cos(np.radians(df['algo_angle'] - df['gt_angle']))
+    )
+    df['error'] = np.degrees(error_rad)
     df['abs_error'] = df['error'].abs()
     
-    mae = df['abs_error'].mean()
-    rmse = np.sqrt((df['error']**2).mean())
+    maae = df['abs_error'].mean()
+    rmsae = np.sqrt((df['error']**2).mean())
     max_error = df['abs_error'].max()
     
     print("\n=== Eye Torsion Validation Results ===")
     print(f"Total samples evaluated: {len(df)}")
-    print(f"Mean Absolute Error (MAE): {mae:.4f} degrees")
-    print(f"Root Mean Squared Error (RMSE): {rmse:.4f} degrees")
+    print(f"Mean Absolute Angular Error (MAAE): {maae:.4f} degrees")
+    print(f"Root Mean Squared Angular Error (RMSAE): {rmsae:.4f} degrees")
     print(f"Maximum Error: {max_error:.4f} degrees")
     print("\nSample predictions vs Ground Truth:")
     print(df[['sequence', 'img_prev', 'img_curr', 'gt_angle', 'algo_angle', 'abs_error']].head(10))

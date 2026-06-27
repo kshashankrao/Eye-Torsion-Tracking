@@ -27,8 +27,9 @@ int main() {
         // 1. Initialize our lazy DataLoader iterator
         DataLoader loader(config_path);
         
-        // 2. Initialize TorsionDetector with Polar Cross-Correlation Strategy
-        auto polar_algo = std::make_unique<PolarCrossCorrelation>();
+        // 2. Initialize TorsionDetector with Polar Cross-Correlation Strategy (1440 angular bins)
+        // Default is use_fft = false (Masked Spatial Correlation)
+        auto polar_algo = std::make_unique<PolarCrossCorrelation>(80, 1440);
         TorsionDetector detector(std::move(polar_algo));
         
         // 3. Generate dynamic output folder name: output/YYYYMMDD_HHMMSS_AlgorithmName
@@ -60,30 +61,37 @@ int main() {
             
             // Save one pair of diagnostic images inside the dynamic output directory
             if (diagnostics && !debug_saved) {
-                // Cartesian cleaned images
+                // Cartesian cleaned images (no overlays)
                 cv::imwrite(out_dir + "/debug_01_clean_prev.png", diagnostics->clean_prev);
                 cv::imwrite(out_dir + "/debug_01_clean_curr.png", diagnostics->clean_curr);
+                
+                // Cartesian mask images (red dots)
+                cv::imwrite(out_dir + "/debug_01a_mask_prev.png", diagnostics->mask_prev);
+                cv::imwrite(out_dir + "/debug_01a_mask_curr.png", diagnostics->mask_curr);
                 
                 // Polar warped images
                 cv::imwrite(out_dir + "/debug_02_polar_prev.png", diagnostics->polar_prev);
                 cv::imwrite(out_dir + "/debug_02_polar_curr.png", diagnostics->polar_curr);
                 
-                // Iris CLAHE enhanced regions
+                // Iris CLAHE enhanced regions (red dots indicate masked out regions in polar space)
                 cv::imwrite(out_dir + "/debug_03_iris_clahe_prev.png", diagnostics->iris_prev);
                 cv::imwrite(out_dir + "/debug_03_iris_clahe_curr.png", diagnostics->iris_curr);
                 
-                // Vertical Sobel gradient images (normalized for 8-bit visual inspectability)
-                cv::Mat grad_prev_8u, grad_curr_8u;
-                cv::normalize(diagnostics->grad_prev, grad_prev_8u, 0, 255, cv::NORM_MINMAX, CV_8U);
-                cv::normalize(diagnostics->grad_curr, grad_curr_8u, 0, 255, cv::NORM_MINMAX, CV_8U);
-                cv::imwrite(out_dir + "/debug_04_sobel_prev.png", grad_prev_8u);
-                cv::imwrite(out_dir + "/debug_04_sobel_curr.png", grad_curr_8u);
+                // Features used for correlation (green dots on polar space)
+                cv::imwrite(out_dir + "/debug_04_features_prev.png", diagnostics->grad_prev);
+                cv::imwrite(out_dir + "/debug_04_features_curr.png", diagnostics->grad_curr);
+                
+                // Features used for correlation mapped to Cartesian space (green dots on real eye image)
+                cv::imwrite(out_dir + "/debug_04a_cartesian_features_prev.png", diagnostics->cartesian_features_prev);
+                cv::imwrite(out_dir + "/debug_04a_cartesian_features_curr.png", diagnostics->cartesian_features_curr);
                 
                 std::cout << "\n[DEBUG] Diagnostic intermediate images saved to '" << out_dir << "/' folder:" << std::endl;
                 std::cout << "  - Cleaned Cartesian: debug_01_clean_*.png" << std::endl;
+                std::cout << "  - Masked Cartesian:  debug_01a_mask_*.png" << std::endl;
                 std::cout << "  - Warp Polar:        debug_02_polar_*.png" << std::endl;
                 std::cout << "  - Iris CLAHE:        debug_03_iris_clahe_*.png" << std::endl;
-                std::cout << "  - Sobel Gradients:   debug_04_sobel_*.png" << std::endl;
+                std::cout << "  - Active Features (Polar): debug_04_features_*.png" << std::endl;
+                std::cout << "  - Active Features (Cart):  debug_04a_cartesian_features_*.png" << std::endl;
                 std::cout << "[DEBUG] Measured Shift: (" << diagnostics->shift.x << ", " << diagnostics->shift.y << ")" << std::endl;
                 debug_saved = true;
             }
@@ -103,6 +111,7 @@ int main() {
         out_file.close();
         std::cout << "\nSuccess! Pipeline executed. Processed " << processed_count 
                   << " pairs. Results saved to " << out_csv_path << std::endl;
+                  
                   
     } catch (const std::exception& e) {
         std::cerr << "Pipeline failed with error: " << e.what() << std::endl;

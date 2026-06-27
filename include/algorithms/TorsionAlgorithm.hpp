@@ -6,12 +6,16 @@
 struct TorsionDiagnostics {
     cv::Mat clean_prev;
     cv::Mat clean_curr;
+    cv::Mat mask_prev;
+    cv::Mat mask_curr;
     cv::Mat polar_prev;
     cv::Mat polar_curr;
     cv::Mat iris_prev;
     cv::Mat iris_curr;
     cv::Mat grad_prev;
     cv::Mat grad_curr;
+    cv::Mat cartesian_features_prev;
+    cv::Mat cartesian_features_curr;
     cv::Point2d shift;
 };
 
