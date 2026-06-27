@@ -7,6 +7,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Find OpenCV
 find_package(OpenCV REQUIRED)
 
+# Find OpenMP
+find_package(OpenMP REQUIRED)
+
 # Fetch nlohmann/json
 include(FetchContent)
 FetchContent_Declare(
@@ -28,7 +31,7 @@ set(CORE_SOURCES
 # Core static library
 add_library(torsion_core STATIC ${CORE_SOURCES})
 target_include_directories(torsion_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(torsion_core PUBLIC ${OpenCV_LIBS} nlohmann_json::nlohmann_json)
+target_link_libraries(torsion_core PUBLIC ${OpenCV_LIBS} OpenMP::OpenMP_CXX nlohmann_json::nlohmann_json)
 
 # Executable target linking core library
 add_executable(torsion_app src/main.cpp)

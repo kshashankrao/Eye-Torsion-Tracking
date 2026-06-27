@@ -58,11 +58,13 @@ int main() {
         while (loader.hasNext()) {
             TorsionSample sample = loader.next();
             
-            // We pass request_diagnostics = true so we can inspect intermediate steps in debug mode!
+            // We pass request_diagnostics = false for maximum production performance
             tracker.start();
-            auto [predicted_angle, confidence, success, diagnostics] = detector.process(sample.img_prev, sample.img_curr, true);
+            auto [predicted_angle, confidence, success, diagnostics] = detector.process(sample.img_prev, sample.img_curr, false);
             double elapsed_ms = tracker.stop();
             
+
+
             // Save one pair of diagnostic images inside the dynamic output directory
             if (diagnostics && !debug_saved) {
                 // Cartesian cleaned images (no overlays)
@@ -122,6 +124,9 @@ int main() {
         std::cout << "Min:    " << tracker.getMin() << " ms" << std::endl;
         std::cout << "Max:    " << tracker.getMax() << " ms" << std::endl;
         std::cout << "StdDev: " << tracker.getStdDev() << " ms" << std::endl;
+                  
+        extern PerformanceTracker g_algo_tracker;
+        g_algo_tracker.printReport();
                   
                   
     } catch (const std::exception& e) {

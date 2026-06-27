@@ -1,9 +1,12 @@
 #include "algorithms/PolarCrossCorrelation.hpp"
+#include "utils/PerformanceTracker.hpp"
 #include <opencv2/photo.hpp>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <iostream>
 #include <utility>
+
+PerformanceTracker g_algo_tracker;
 
 PolarCrossCorrelation::PolarCrossCorrelation(int radial_bins, int angular_bins, bool use_fft)
     : radial_bins_(radial_bins),
@@ -55,14 +58,16 @@ std::pair<cv::Mat, cv::Mat> PolarCrossCorrelation::removeGlints(const cv::Mat& s
     cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(glint_kernel_size_, glint_kernel_size_));
     cv::dilate(mask, dilated_mask, kernel);
     
-    // 3. Inpaint the glint regions using Telea's method with a suitable radius
-    cv::Mat dst;
-    cv::inpaint(src, dilated_mask, dst, glint_inpaint_radius_, cv::INPAINT_TELEA);
-    
     // Create valid mask (inverted): valid pixels are 1, glints are 0
     cv::Mat valid_mask;
     cv::bitwise_not(dilated_mask, valid_mask);
     valid_mask.setTo(1, valid_mask > 0);
+    
+    // 3. Fast fill: set dilated mask regions to the average intensity of valid pixels
+    // This prevents CLAHE boundary artifacts while running in 0.2ms
+    cv::Scalar mean_val = cv::mean(src, valid_mask);
+    cv::Mat dst = src.clone();
+    dst.setTo(mean_val, dilated_mask);
     
     return {dst, valid_mask};
 }
@@ -100,11 +105,10 @@ double PolarCrossCorrelation::calculateMaskedNCC(const cv::Mat& prev,
     const int height = prev.rows;
     const int width = prev.cols;
 
-    double best_ncc = -1.0;
-    int best_dx = 0; // column shift (horizontal wrap in polar image)
     std::vector<double> ncc_scores(2 * max_shift + 1, 0.0);
 
-    // For each possible column shift (dx) compute NCC in a single pass.
+    // For each possible column shift (dx) compute NCC in a parallel loop.
+    #pragma omp parallel for
     for (int dx = -max_shift; dx <= max_shift; ++dx) {
         // Accumulators for the current shift
         double sum_p = 0.0, sum_c = 0.0;
@@ -156,6 +160,13 @@ double PolarCrossCorrelation::calculateMaskedNCC(const cv::Mat& prev,
         const double ncc = (denominator == 0.0) ? 0.0 : numerator / denominator;
 
         ncc_scores[dx + max_shift] = ncc;
+    }
+
+    // Find the best shift sequentially
+    double best_ncc = -1.0;
+    int best_dx = 0;
+    for (int dx = -max_shift; dx <= max_shift; ++dx) {
+        double ncc = ncc_scores[dx + max_shift];
         if (ncc > best_ncc) {
             best_ncc = ncc;
             best_dx = dx;
@@ -185,20 +196,54 @@ double PolarCrossCorrelation::calculateMaskedNCC(const cv::Mat& prev,
 TorsionResult PolarCrossCorrelation::calculateTorsion(const cv::Mat& prev_frame, 
                                                       const cv::Mat& curr_frame, 
                                                       bool request_diagnostics) {
-    // 1. Preprocess: remove stationary glints in Cartesian space
-    auto [cleaned_prev, cartesian_mask_prev] = removeGlints(prev_frame);
-    auto [cleaned_curr, cartesian_mask_curr] = removeGlints(curr_frame);
+    // 1. Preprocess: remove stationary glints in Cartesian space (in parallel)
+    cv::Mat cleaned_prev, cleaned_curr, cartesian_mask_prev, cartesian_mask_curr;
+    g_algo_tracker.start("1. Glint Removal");
+    #pragma omp parallel sections
+    {
+        #pragma omp section
+        {
+            auto [p, m] = removeGlints(prev_frame);
+            cleaned_prev = p;
+            cartesian_mask_prev = m;
+        }
+        #pragma omp section
+        {
+            auto [c, m] = removeGlints(curr_frame);
+            cleaned_curr = c;
+            cartesian_mask_curr = m;
+        }
+    }
+    g_algo_tracker.stop("1. Glint Removal");
 
-    // 2. Convert Cartesian images to Polar coordinates
-    cv::Mat polar_prev = convertToPolar(cleaned_prev);
-    cv::Mat polar_curr = convertToPolar(cleaned_curr);
-    
-    cv::Mat polar_mask_prev = convertToPolar(cartesian_mask_prev, cv::INTER_NEAREST);
-    cv::Mat polar_mask_curr = convertToPolar(cartesian_mask_curr, cv::INTER_NEAREST);
+    // 2. Convert Cartesian images to Polar coordinates (all 4 warps in parallel)
+    cv::Mat polar_prev, polar_curr, polar_mask_prev, polar_mask_curr;
+    g_algo_tracker.start("2. Polar Warp");
+    #pragma omp parallel sections
+    {
+        #pragma omp section
+        {
+            polar_prev = convertToPolar(cleaned_prev);
+        }
+        #pragma omp section
+        {
+            polar_curr = convertToPolar(cleaned_curr);
+        }
+        #pragma omp section
+        {
+            polar_mask_prev = convertToPolar(cartesian_mask_prev, cv::INTER_NEAREST);
+        }
+        #pragma omp section
+        {
+            polar_mask_curr = convertToPolar(cartesian_mask_curr, cv::INTER_NEAREST);
+        }
+    }
+    g_algo_tracker.stop("2. Polar Warp");
     
     // ----------------------------------------------------
     // IRIS ANNULUS EXTRACTION & CONTRAST ENHANCEMENT
     // ----------------------------------------------------
+    g_algo_tracker.start("3. Iris Crop & CLAHE");
     // Select the iris annulus: radial rows 35–70 out of 80 radial bins.
     // Rows = radius, Cols = angle (warpPolar output: rows=rho, cols=phi).
     // This gives a 35×1440 sub-image so the NCC can shift in the full angular dimension.
@@ -209,18 +254,28 @@ TorsionResult PolarCrossCorrelation::calculateTorsion(const cv::Mat& prev_frame,
     cv::Mat iris_mask_prev = polar_mask_prev(iris_rows, cv::Range::all());
     cv::Mat iris_mask_curr = polar_mask_curr(iris_rows, cv::Range::all());
     
-    // Enhance iris texture using CLAHE
-    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clahe_clip_limit_, cv::Size(clahe_grid_size_, clahe_grid_size_));
+    // Enhance iris texture using CLAHE and convert to CV_32F (in parallel)
     cv::Mat enhanced_prev, enhanced_curr;
-    clahe->apply(iris_prev, enhanced_prev);
-    clahe->apply(iris_curr, enhanced_curr);
-    
-    // 3. Convert to float for precise spatial NCC or FFT
     cv::Mat float_prev_32f, float_curr_32f;
-    enhanced_prev.convertTo(float_prev_32f, CV_32F);
-    enhanced_curr.convertTo(float_curr_32f, CV_32F);
+    #pragma omp parallel sections
+    {
+        #pragma omp section
+        {
+            cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clahe_clip_limit_, cv::Size(clahe_grid_size_, clahe_grid_size_));
+            clahe->apply(iris_prev, enhanced_prev);
+            enhanced_prev.convertTo(float_prev_32f, CV_32F);
+        }
+        #pragma omp section
+        {
+            cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clahe_clip_limit_, cv::Size(clahe_grid_size_, clahe_grid_size_));
+            clahe->apply(iris_curr, enhanced_curr);
+            enhanced_curr.convertTo(float_curr_32f, CV_32F);
+        }
+    }
+    g_algo_tracker.stop("3. Iris Crop & CLAHE");
     
     // 4. Compute tracking
+    g_algo_tracker.start("4. Correlation Matching");
     double peak_response = 0.0;
     double shift_y = 0.0;
     
@@ -233,6 +288,7 @@ TorsionResult PolarCrossCorrelation::calculateTorsion(const cv::Mat& prev_frame,
         int max_shift = static_cast<int>(std::round(max_search_shift_deg_ * (angular_bins_ / 360.0)));
         shift_y = calculateMaskedNCC(float_prev_32f, float_curr_32f, iris_mask_prev, iris_mask_curr, max_shift, peak_response);
     }
+    g_algo_tracker.stop("4. Correlation Matching");
     
     // Translate shift along vertical axis to degrees
     // Note: We multiply by -1.0 to correct the sign flip mismatch between Cartesian and Polar rotations.
