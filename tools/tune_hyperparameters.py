@@ -132,8 +132,12 @@ def objective(trial):
     return maae, runtime_ms
 
 def main():
-    # Run 50 trials of Multi-Objective Bayesian optimization
-    n_trials = 50
+    import argparse
+    parser = argparse.ArgumentParser(description="Optuna Hyperparameter Tuner for Eye Torsion")
+    parser.add_argument("--trials", type=int, default=50, help="Number of tuning trials")
+    args = parser.parse_args()
+    
+    n_trials = args.trials
     print(f"Starting Optuna Multi-Objective Optimization Study ({n_trials} trials)...")
     
     # Enable MLflow parent run for the entire study

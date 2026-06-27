@@ -12,6 +12,31 @@ Below is the optimized tracking pipeline running on consecutive frames:
 
 ---
 
+## Final Results
+
+Below are the final evaluation metrics and latency benchmarks for the production configuration (Release Build running 50 sequential frame pairs):
+
+### 1. Tracking Accuracy
+
+| Evaluation Metric | Value |
+| :--- | :---: |
+| **Mean Absolute Angular Error (MAAE)** | **`0.0476°`** |
+| **Root Mean Squared Angular Error (RMSAE)** | **`0.0759°`** |
+| **Maximum Error** | **`0.2564°`** |
+
+### 2. Performance & Throughput
+* **Overall Mean Frame Latency**: **`3.55 ms`** (equivalent to **`281 FPS`**)
+* **Execution Stage Breakdown**:
+
+| Stage Name | Mean Latency | Min Latency | Max Latency |
+| :--- | :---: | :---: | :---: |
+| **1. Glint Removal** | `0.24 ms` | `0.15 ms` | `1.57 ms` |
+| **2. Polar Warp** | `0.77 ms` | `0.63 ms` | `2.30 ms` |
+| **3. Iris Crop & CLAHE** | `0.37 ms` | `0.26 ms` | `1.26 ms` |
+| **4. Correlation Matching** | `2.16 ms` | `1.86 ms` | `4.70 ms` |
+
+---
+
 ## Implementation Details
 
 The tracking pipeline measures eye rotation around the visual axis using polar transformations and masked correlation matching. 
