@@ -4,6 +4,12 @@ A high-performance C++ and Python pipeline designed to calculate and validate ey
 
 * **Detailed Algorithm & Intermediate Frame Visualizations**: See the [Algorithm Documentation](docs/ALGORITHM.md).
 
+## Demo Video
+
+Below is the optimized tracking pipeline running on consecutive frames, showing Cartesian and Polar workspaces with green feature overlays:
+
+https://github.com/kshashankrao/Eye-Torsion-Tracking/raw/master/docs/torsion_demo_video.mp4
+
 ---
 
 ## Implementation Details
