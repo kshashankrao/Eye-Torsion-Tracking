@@ -38,4 +38,13 @@ protected:
     cv::Mat convertToPolar(const cv::Mat& src, int interpolation = cv::INTER_LINEAR);
     std::pair<cv::Mat, cv::Mat> removeGlints(const cv::Mat& src);
     double calculateMaskedNCC(const cv::Mat& prev, const cv::Mat& curr, const cv::Mat& mask_prev, const cv::Mat& mask_curr, int max_shift, double& best_peak);
+
+    // Cache pre-computed Polar coordinates LUT mapping
+    cv::Mat map_x_, map_y_;
+    bool maps_initialized_ = false;
+    void precomputePolarMaps(int width, int height);
+
+    // Cache CLAHE instances to avoid heap allocation in main loops
+    cv::Ptr<cv::CLAHE> clahe_prev_;
+    cv::Ptr<cv::CLAHE> clahe_curr_;
 };

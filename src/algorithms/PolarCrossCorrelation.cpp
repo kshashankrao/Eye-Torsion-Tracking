@@ -47,6 +47,10 @@ PolarCrossCorrelation::PolarCrossCorrelation(int radial_bins, int angular_bins, 
     } catch (...) {
         // Fallback to defaults
     }
+    
+    // Initialize cached CLAHE instances
+    clahe_prev_ = cv::createCLAHE(clahe_clip_limit_, cv::Size(clahe_grid_size_, clahe_grid_size_));
+    clahe_curr_ = cv::createCLAHE(clahe_clip_limit_, cv::Size(clahe_grid_size_, clahe_grid_size_));
 }
 
 std::pair<cv::Mat, cv::Mat> PolarCrossCorrelation::removeGlints(const cv::Mat& src) {
@@ -73,23 +77,35 @@ std::pair<cv::Mat, cv::Mat> PolarCrossCorrelation::removeGlints(const cv::Mat& s
     return {dst, valid_mask};
 }
 
+void PolarCrossCorrelation::precomputePolarMaps(int width, int height) {
+    cv::Point2f center(width / 2.0f, height / 2.0f);
+    
+    map_x_.create(cv::Size(radial_bins_, angular_bins_), CV_32FC1);
+    map_y_.create(cv::Size(radial_bins_, angular_bins_), CV_32FC1);
+    
+    for (int y = 0; y < angular_bins_; ++y) {
+        double theta = (static_cast<double>(y) / angular_bins_) * 2.0 * CV_PI;
+        double cos_t = std::cos(theta);
+        double sin_t = std::sin(theta);
+        
+        float* mx_ptr = map_x_.ptr<float>(y);
+        float* my_ptr = map_y_.ptr<float>(y);
+        
+        for (int x = 0; x < radial_bins_; ++x) {
+            double r = (static_cast<double>(x) / radial_bins_) * polar_max_radius_;
+            mx_ptr[x] = static_cast<float>(center.x + r * cos_t);
+            my_ptr[x] = static_cast<float>(center.y + r * sin_t);
+        }
+    }
+    maps_initialized_ = true;
+}
+
 cv::Mat PolarCrossCorrelation::convertToPolar(const cv::Mat& src, int interpolation) {
-    cv::Point2f center(src.cols / 2.0f, src.rows / 2.0f);
-
-    // We target the iris region. The crop is 160x160.
-    // Half-width is 80.
-    double maxRadius = polar_max_radius_;
-
-    // OpenCV's warpPolar maps: rows → angle (phi), cols → radius (rho).
-    // To get the INTENDED layout (rows = radius, cols = angle) we must:
-    //   1. Call warpPolar with cv::Size(radial_bins_, angular_bins_) so that the
-    //      intermediate image is (angular_bins_ rows) × (radial_bins_ cols).
-    //   2. Transpose the result to produce (radial_bins_ rows) × (angular_bins_ cols).
-    // After the transpose: rows = radial_bins_ (radius), cols = angular_bins_ (angle).
-    // This lets the NCC shift horizontally (in cols = angle) to detect torsion.
+    if (!maps_initialized_) {
+        precomputePolarMaps(src.cols, src.rows);
+    }
     cv::Mat raw;
-    cv::warpPolar(src, raw, cv::Size(radial_bins_, angular_bins_), center, maxRadius,
-                  cv::WARP_POLAR_LINEAR | interpolation | cv::WARP_FILL_OUTLIERS);
+    cv::remap(src, raw, map_x_, map_y_, interpolation, cv::BORDER_CONSTANT, cv::Scalar(0));
 
     cv::Mat dst;
     cv::transpose(raw, dst);
@@ -197,6 +213,11 @@ double PolarCrossCorrelation::calculateMaskedNCC(const cv::Mat& prev,
 TorsionResult PolarCrossCorrelation::calculateTorsion(const cv::Mat& prev_frame, 
                                                       const cv::Mat& curr_frame, 
                                                       bool request_diagnostics) {
+    // Lazily precompute the polar warp coordinate maps on the first call (thread-safe)
+    if (!maps_initialized_) {
+        precomputePolarMaps(prev_frame.cols, prev_frame.rows);
+    }
+
     // 1. Preprocess: remove stationary glints in Cartesian space (in parallel)
     cv::Mat cleaned_prev, cleaned_curr, cartesian_mask_prev, cartesian_mask_curr;
     g_algo_tracker.start("1. Glint Removal");
@@ -255,21 +276,19 @@ TorsionResult PolarCrossCorrelation::calculateTorsion(const cv::Mat& prev_frame,
     cv::Mat iris_mask_prev = polar_mask_prev(iris_rows, cv::Range::all());
     cv::Mat iris_mask_curr = polar_mask_curr(iris_rows, cv::Range::all());
     
-    // Enhance iris texture using CLAHE and convert to CV_32F (in parallel)
+    // Enhance iris texture using cached CLAHE instances and convert to CV_32F (in parallel)
     cv::Mat enhanced_prev, enhanced_curr;
     cv::Mat float_prev_32f, float_curr_32f;
     #pragma omp parallel sections
     {
         #pragma omp section
         {
-            cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clahe_clip_limit_, cv::Size(clahe_grid_size_, clahe_grid_size_));
-            clahe->apply(iris_prev, enhanced_prev);
+            clahe_prev_->apply(iris_prev, enhanced_prev);
             enhanced_prev.convertTo(float_prev_32f, CV_32F);
         }
         #pragma omp section
         {
-            cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clahe_clip_limit_, cv::Size(clahe_grid_size_, clahe_grid_size_));
-            clahe->apply(iris_curr, enhanced_curr);
+            clahe_curr_->apply(iris_curr, enhanced_curr);
             enhanced_curr.convertTo(float_curr_32f, CV_32F);
         }
     }
