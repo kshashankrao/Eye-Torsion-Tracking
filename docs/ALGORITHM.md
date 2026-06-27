@@ -93,4 +93,4 @@ $$\text{shift} = x_2 + \delta$$
 
 This shift is then converted back to degrees:
 
-$$\text{angle} = -1.0 \times \left(\frac{\text{shift}}{\text{angular\_bins}}\right) \times 360.0$$
+$$\text{angle} = -1.0 \times \left(\frac{\text{shift}}{N_{\text{angular}}}\right) \times 360.0$$
