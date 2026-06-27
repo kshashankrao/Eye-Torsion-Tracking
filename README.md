@@ -22,6 +22,10 @@ Below are the final evaluation metrics and latency benchmarks for the production
 | **Root Mean Squared Angular Error (RMSAE)** | **`0.0759°`** |
 | **Maximum Error** | **`0.2564°`** |
 
+> **MAAE Formula:** \( \text{MAAE} = \frac{1}{N}\sum_{i=1}^{N} |\theta_i - \hat{\theta}_i| \)
+> **RMSAE Formula:** \( \text{RMSAE} = \sqrt{\frac{1}{N}\sum_{i=1}^{N} (\theta_i - \hat{\theta}_i)^2} \)
+> **Maximum Error Formula:** \( \text{Max Error} = \max_{i} |\theta_i - \hat{\theta}_i| \)
+
 ### 2. Performance & Throughput
 * **Overall Mean Frame Latency**: **`3.31 ms`** (equivalent to **`302 FPS`**)
 * **Execution Stage Breakdown**:
